@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{% block title %}Claude Teams{% endblock %}</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body data-page="{% block page_name %}{% endblock %}" {% block body_attrs %}{% endblock %}>
+  <header class="header-bar">
+    {% block header_left %}
+      <span class="header-title">Claude Teams</span>
+    {% endblock %}
+    {% block header_center %}{% endblock %}
+    {% block header_right %}
+      <span class="header-repo">{{ repo }}</span>
+    {% endblock %}
+  </header>
+
+  <main class="main-content">
+    {% block content %}{% endblock %}
+  </main>
+
+  <script src="/static/app.js" defer></script>
+</body>
+</html>

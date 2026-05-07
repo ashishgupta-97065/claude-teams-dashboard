@@ -1,0 +1,52 @@
+{% extends "_base.html" %}
+
+{% block title %}Claude Teams — Tickets{% endblock %}
+{% block page_name %}list{% endblock %}
+{% block body_attrs %}data-repo="{{ repo }}"{% endblock %}
+
+{% block content %}
+<div class="list-page">
+  <div class="refresh-strip">
+    <span>Last refreshed: <span id="refresh-time">{{ fetched_at }}</span></span>
+    <span id="refresh-spinner" class="spinner" aria-hidden="true" style="display:none"></span>
+    <a href="/" id="manual-refresh" class="refresh-link" aria-label="Refresh ticket list">Refresh</a>
+  </div>
+
+  {% if error %}
+  <div class="error-banner" id="error-banner" role="alert">
+    <span>GitHub fetch failed: {{ error }}. Showing last cached data.</span>
+    <button onclick="this.parentElement.style.display='none'" aria-label="Dismiss error" class="btn-icon">
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+        <path d="M3.5 3.5l9 9M12.5 3.5l-9 9" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+      </svg>
+    </button>
+  </div>
+  {% endif %}
+
+  {% if tickets %}
+  <table class="ticket-table" role="table" aria-label="Tickets">
+    <thead>
+      <tr>
+        <th class="col-num" scope="col">#</th>
+        <th class="col-title" scope="col">Title</th>
+        <th class="col-status" scope="col">Status</th>
+        <th class="col-action" scope="col">Action</th>
+      </tr>
+    </thead>
+    <tbody id="ticket-tbody">
+      {% for ticket in tickets %}
+        {% include "_ticket_row.html" %}
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <div class="empty-state" id="empty-state">
+    <svg width="32" height="32" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="1.5"/>
+      <path d="M12 8v4M12 16h.01" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+    </svg>
+    <p>No issues found in <code>{{ repo }}</code>.</p>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

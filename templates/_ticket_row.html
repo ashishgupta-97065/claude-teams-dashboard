@@ -1,0 +1,25 @@
+{% set status_class = "pill-open" if ticket.status == "open" else ("pill-inprogress" if ticket.status == "in-progress" else "pill-closed") %}
+{% set status_label = "OPEN" if ticket.status == "open" else ("IN-PROGRESS" if ticket.status == "in-progress" else "CLOSED") %}
+{% set run_disabled = ticket.status != "open" %}
+{% set run_title = "Already running" if ticket.status == "in-progress" else ("Closed ticket" if ticket.status == "closed" else "Run pipeline") %}
+
+<tr class="ticket-row" tabindex="0" data-ticket="{{ ticket.number }}" onclick="window.open('/run/{{ ticket.number }}', '_blank')" role="row">
+  <td class="col-num" onclick="event.stopPropagation()"><a href="/run/{{ ticket.number }}" target="_blank" onclick="event.stopPropagation()">#{{ ticket.number }}</a></td>
+  <td class="col-title">{{ ticket.title }}</td>
+  <td class="col-status">
+    <span class="pill {{ status_class }}" aria-label="Status: {{ status_label }}">
+      {% if ticket.status == "in-progress" %}
+        <span class="pulse-dot" aria-hidden="true"></span>
+      {% endif %}
+      {{ status_label }}
+    </span>
+  </td>
+  <td class="col-action" onclick="event.stopPropagation()">
+    <button
+      class="btn btn-primary run-btn"
+      data-ticket="{{ ticket.number }}"
+      {% if run_disabled %}disabled{% endif %}
+      title="{{ run_title }}"
+    >Run</button>
+  </td>
+</tr>

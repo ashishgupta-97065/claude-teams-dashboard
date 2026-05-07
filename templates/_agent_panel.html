@@ -1,0 +1,44 @@
+{% set status_class = "pill-done" if panel.status == "done" else ("pill-inprogress" if panel.status == "running" else "pill-waiting") %}
+{% set status_label = "DONE" if panel.status == "done" else ("RUNNING" if panel.status == "running" else "WAITING") %}
+
+<details class="agent-panel" id="panel-{{ panel.name }}" {% if panel.expanded %}open{% endif %} data-agent="{{ panel.name }}" data-status="{{ panel.status }}">
+  <summary class="panel-header">
+    <span class="panel-name">{{ panel.display }}</span>
+    <span class="panel-right">
+      <span class="pill {{ status_class }}" aria-label="Status: {{ status_label }}">
+        {% if panel.status == "running" %}
+          <span class="pulse-dot" aria-hidden="true"></span>
+        {% elif panel.status == "done" %}
+          <svg class="check-icon" width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
+            <path d="M2 6l3 3 5-5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        {% endif %}
+        {{ status_label }}
+      </span>
+      <span class="badge" id="badge-{{ panel.name }}" style="display:none" aria-live="polite"></span>
+      <svg class="chevron-icon" width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+        <path d="M4 6l4 4 4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+    </span>
+  </summary>
+  <div class="panel-body">
+    <div class="log-area" id="log-{{ panel.name }}">
+      {% if panel.entries %}
+        {% for entry in panel.entries %}
+          <div class="log-entry">
+            <span class="log-ts">{{ entry.timestamp[:19].replace("T", " ") if entry.timestamp else "" }}</span>
+            <span class="log-text">{{ entry.text }}</span>
+          </div>
+        {% endfor %}
+      {% else %}
+        <p class="log-empty" id="empty-{{ panel.name }}">No output yet.</p>
+      {% endif %}
+    </div>
+    <button class="new-output-btn" id="newbtn-{{ panel.name }}" style="display:none" aria-label="Scroll to latest output">
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+        <path d="M8 3v10M4 9l4 4 4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+      New output
+    </button>
+  </div>
+</details>
