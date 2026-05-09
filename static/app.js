@@ -4,6 +4,7 @@
   var page = document.body.dataset.page;
   if (page === 'list') initListPage();
   else if (page === 'viewer') initViewerPage();
+  else if (page === 'review') initReviewPage();
 
   // ============================================================
   // LIST PAGE
@@ -730,6 +731,90 @@
     Tree.startPolling();
     setInterval(Timeline.refreshTimestamps, 10000);
     document.addEventListener('visibilitychange', visibilityHandler);
+  }
+
+  // ============================================================
+  // REVIEW PAGE
+  // ============================================================
+
+  function initReviewPage() {
+    // Trace block toggle (Section 3)
+    document.querySelectorAll('.trace-header').forEach(function (header) {
+      header.addEventListener('click', function () {
+        var targetId = header.dataset.toggle;
+        var panel = document.getElementById(targetId);
+        var icon = header.querySelector('.trace-toggle-icon');
+        if (!panel) return;
+        var isOpen = panel.style.display !== 'none';
+        panel.style.display = isOpen ? 'none' : 'block';
+        if (icon) icon.textContent = isOpen ? '▶' : '▼';
+      });
+    });
+
+    // Commit block toggle (Section 5)
+    document.querySelectorAll('.commit-header').forEach(function (header) {
+      header.addEventListener('click', function () {
+        var targetId = header.dataset.toggle;
+        var panel = document.getElementById(targetId);
+        var icon = header.querySelector('.commit-toggle-icon');
+        if (!panel) return;
+        var isOpen = panel.style.display !== 'none';
+        panel.style.display = isOpen ? 'none' : 'block';
+        if (icon) icon.textContent = isOpen ? '▶' : '▼';
+      });
+    });
+
+    // File diff toggle (Section 5)
+    document.querySelectorAll('.file-diff-header').forEach(function (header) {
+      header.addEventListener('click', function () {
+        var targetId = header.dataset.toggle;
+        var panel = document.getElementById(targetId);
+        var icon = header.querySelector('.file-toggle-icon');
+        if (!panel) return;
+        var isOpen = panel.style.display !== 'none';
+        panel.style.display = isOpen ? 'none' : 'block';
+        if (icon) icon.textContent = isOpen ? '▶' : '▼';
+      });
+    });
+
+    // Artifact tab switch (Section 4)
+    var tabBtns = document.querySelectorAll('.tab-btn');
+    var tabPanels = document.querySelectorAll('.tab-panel');
+    tabBtns.forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        var targetKey = btn.dataset.tab;
+        tabBtns.forEach(function (b) {
+          b.classList.remove('active');
+          b.setAttribute('aria-selected', 'false');
+        });
+        tabPanels.forEach(function (p) { p.classList.remove('active'); });
+        btn.classList.add('active');
+        btn.setAttribute('aria-selected', 'true');
+        var panel = document.querySelector('[data-panel="' + targetKey + '"]');
+        if (panel) panel.classList.add('active');
+      });
+    });
+
+    // Bar chart tooltip (Section 2)
+    var tooltip = document.getElementById('bar-tooltip');
+    if (tooltip) {
+      document.querySelectorAll('.bar-row').forEach(function (row) {
+        row.addEventListener('mouseenter', function (e) {
+          var agent = row.dataset.agent || '';
+          var duration = row.dataset.duration || '';
+          var cost = row.dataset.cost || '';
+          tooltip.textContent = agent + ' · ' + duration + ' · $' + cost;
+          tooltip.style.display = 'block';
+        });
+        row.addEventListener('mousemove', function (e) {
+          tooltip.style.left = (e.clientX + 12) + 'px';
+          tooltip.style.top = (e.clientY - 8) + 'px';
+        });
+        row.addEventListener('mouseleave', function () {
+          tooltip.style.display = 'none';
+        });
+      });
+    }
   }
 
   // ============================================================

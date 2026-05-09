@@ -1,0 +1,214 @@
+{% extends "_base.html" %}
+
+{% block title %}Review — Ticket #{{ ticket_number }}{% endblock %}
+{% block page_name %}review{% endblock %}
+
+{% block header_left %}
+  <span class="header-title">
+    <a href="/" style="text-decoration:none;color:inherit;">Claude Teams</a>
+    &rsaquo;
+    <a href="/tickets/{{ ticket_number }}" style="text-decoration:none;color:inherit;">Ticket #{{ ticket_number }}</a>
+    &rsaquo; Review
+  </span>
+{% endblock %}
+
+{% block content %}
+<div class="review-page">
+
+  {# ── Section 1: Ticket Summary ─────────────────────────────────────────── #}
+  <section id="summary" class="review-section">
+    <h2 class="review-section-title">Ticket Summary</h2>
+    <div class="summary-bar">
+      <div class="summary-meta">
+        <span class="summary-ticket-id">#{{ ticket_number }}</span>
+        <span class="summary-title">{{ bundle.title }}</span>
+        <span class="summary-date">{{ bundle.date }}</span>
+      </div>
+      <div class="summary-metrics">
+        <div class="metric-tile">
+          <span class="metric-label">Total Cost</span>
+          <span class="metric-value">${{ "%.4f" | format(bundle.total_cost) }}</span>
+        </div>
+        <div class="metric-tile">
+          <span class="metric-label">Total Turns</span>
+          <span class="metric-value">{{ bundle.total_turns }}</span>
+        </div>
+        <div class="metric-tile">
+          <span class="metric-label">Duration</span>
+          <span class="metric-value">{{ bundle.duration_s | duration }}</span>
+        </div>
+        <div class="metric-tile">
+          <span class="metric-label">Verdict</span>
+          <span class="metric-value verdict-badge verdict-{{ bundle.verdict | lower }}">{{ bundle.verdict | upper }}</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  {# ── Section 2: Per-Agent Metrics (inline SVG bar chart) ──────────────── #}
+  <section id="agent-cost" class="review-section">
+    <h2 class="review-section-title">Per-Agent Cost</h2>
+    {% if bundle.agents %}
+      <div class="bar-chart-container">
+        {% set ns = namespace(max_cost=0.0) %}
+        {% for agent in bundle.agents %}
+          {% if agent.cost > ns.max_cost %}{% set ns.max_cost = agent.cost %}{% endif %}
+        {% endfor %}
+        {% set chart_max = ns.max_cost if ns.max_cost > 0 else 1.0 %}
+        <svg class="agent-bar-chart" width="100%" aria-label="Per-agent cost chart">
+          {% for agent in bundle.agents %}
+            {% set idx = loop.index0 %}
+            {% set bar_width_pct = (agent.cost / chart_max * 100) %}
+            {% set row_y = idx * 36 %}
+            {% set bar_label = agent.name ~ " · " ~ agent.turns ~ " turns · $" ~ ("%.4f" | format(agent.cost)) %}
+            <g class="bar-row" transform="translate(0,{{ row_y }})" data-agent="{{ agent.name }}"
+               data-duration="{{ agent.duration_s | duration }}" data-cost="{{ '%.4f' | format(agent.cost) }}">
+              <rect class="bar-track" x="0" y="4" width="100%" height="24" rx="3"/>
+              <rect class="bar-fill" x="0" y="4" width="{{ bar_width_pct }}%" height="24" rx="3"/>
+              <text class="bar-label" x="6" y="20">{{ bar_label }}</text>
+            </g>
+          {% endfor %}
+        </svg>
+        <div class="tooltip" id="bar-tooltip" style="display:none;position:fixed;pointer-events:none;"></div>
+      </div>
+    {% else %}
+      <p class="empty-state">No agents recorded.</p>
+    {% endif %}
+  </section>
+
+  {# ── Section 3: Trace Replay ───────────────────────────────────────────── #}
+  <section id="trace-replay" class="review-section">
+    <h2 class="review-section-title">Trace Replay</h2>
+    {% if bundle.agents %}
+      {% for agent in bundle.agents %}
+        {% set agent_events = trace_data.get(agent.name, {}) %}
+        {% set tokens = agent_events.get("tokens", 0) %}
+        {% set events = agent_events.get("events", []) %}
+        <div class="trace-block" data-agent="{{ agent.name }}">
+          <div class="trace-header" data-toggle="trace-{{ loop.index }}">
+            <span class="trace-agent-name">{{ agent.name }}</span>
+            <span class="trace-tokens">~{{ tokens }} tokens</span>
+            <span class="trace-toggle-icon">▶</span>
+          </div>
+          <div class="trace-events" id="trace-{{ loop.index }}" style="display:none;">
+            {% if events %}
+              {% for ev in events %}
+                <div class="trace-event trace-event-{{ ev.kind | lower | replace('_','-') }}
+                  {%- if ev.kind == 'RateLimitEvent' %} trace-rate-limit orange-highlight{% endif %}">
+                  <span class="event-kind">{{ ev.kind }}</span>
+                  {% if ev.kind == "AssistantMessage" %}
+                    <span class="event-body">{{ ev.text }}</span>
+                  {% elif ev.kind == "UserMessage" %}
+                    <span class="event-body">{{ ev.text }}</span>
+                  {% elif ev.kind == "ToolUseBlock" %}
+                    <span class="event-body"><strong>{{ ev.tool_name }}</strong> {{ ev.tool_input }}</span>
+                  {% elif ev.kind == "ToolResultBlock" %}
+                    <span class="event-body">{{ ev.output }}</span>
+                  {% elif ev.kind == "RateLimitEvent" %}
+                    <span class="event-body rate-limit-message">{{ ev.message }}</span>
+                  {% else %}
+                    <span class="event-body">{{ ev }}</span>
+                  {% endif %}
+                </div>
+              {% endfor %}
+            {% else %}
+              <p class="empty-state">No events recorded.</p>
+            {% endif %}
+          </div>
+        </div>
+      {% endfor %}
+    {% else %}
+      <p class="empty-state">No trace files found.</p>
+    {% endif %}
+  </section>
+
+  {# ── Section 4: Artifact Tabs ─────────────────────────────────────────── #}
+  <section id="artifacts" class="review-section">
+    <h2 class="review-section-title">Artifacts</h2>
+    <div class="artifact-tabs">
+      <div class="tab-bar" role="tablist">
+        {% set artifact_tabs = [
+          ("specs", "Specs"),
+          ("design", "Design"),
+          ("architecture", "Architecture"),
+          ("tech_review", "Tech Review"),
+          ("qa_report", "QA Report"),
+        ] %}
+        {% for key, label in artifact_tabs %}
+          <button class="tab-btn{% if loop.first %} active{% endif %}"
+                  role="tab"
+                  data-tab="{{ key }}"
+                  aria-selected="{{ 'true' if loop.first else 'false' }}">
+            {{ label }}
+            {% if bundle.artifacts[key] is none %}<span class="tab-missing">✗</span>{% endif %}
+          </button>
+        {% endfor %}
+      </div>
+      {% for key, label in artifact_tabs %}
+        <div class="tab-panel{% if loop.first %} active{% endif %}" id="tab-{{ key }}" data-panel="{{ key }}">
+          {% if bundle.artifacts_html[key] is not none %}
+            {{ bundle.artifacts_html[key] | safe }}
+          {% else %}
+            <p class="artifact-missing">Artifact not produced.</p>
+          {% endif %}
+        </div>
+      {% endfor %}
+    </div>
+  </section>
+
+  {# ── Section 5: Code Changes ──────────────────────────────────────────── #}
+  <section id="code-changes" class="review-section">
+    <h2 class="review-section-title">Code Changes</h2>
+    {% if bundle.commits %}
+      {% for commit in bundle.commits %}
+        <div class="commit-block">
+          <div class="commit-header" data-toggle="commit-{{ loop.index }}">
+            <code class="commit-sha">{{ commit.sha }}</code>
+            <span class="commit-message">{{ commit.message }}</span>
+            <span class="commit-file-count">{{ commit.files | length }} file(s)</span>
+            <span class="commit-toggle-icon">▶</span>
+          </div>
+          <div class="commit-files" id="commit-{{ loop.index }}" style="display:none;">
+            {% for file in commit.files %}
+              <div class="file-diff-block" data-toggle="file-{{ loop.index }}-{{ forloop.index if forloop is defined else loop.index }}">
+                <div class="file-diff-header" data-toggle="filediff-{{ loop.index }}">
+                  <span class="file-path">{{ file.path }}</span>
+                  <span class="diff-stats">
+                    <span class="additions">+{{ file.additions }}</span>
+                    <span class="deletions">-{{ file.deletions }}</span>
+                  </span>
+                  <span class="file-toggle-icon">▶</span>
+                </div>
+                <div class="file-diff-content" id="filediff-{{ loop.index }}" style="display:none;">
+                  <pre class="diff-pre">{% for diff_line in file.diff.split('\n') %}<span class="diff-line {% if diff_line.startswith('+++') or diff_line.startswith('---') %}diff-header{% elif diff_line.startswith('+') %}diff-add{% elif diff_line.startswith('-') %}diff-del{% elif diff_line.startswith('@@') %}diff-hunk{% endif %}">{{ diff_line }}
+</span>{% endfor %}</pre>
+                </div>
+              </div>
+            {% else %}
+              <p class="empty-state">No files changed.</p>
+            {% endfor %}
+          </div>
+        </div>
+      {% endfor %}
+    {% else %}
+      <p class="empty-state">No commits reference this ticket.</p>
+    {% endif %}
+  </section>
+
+  {# ── Section 6: QA Report ─────────────────────────────────────────────── #}
+  <section id="qa-report" class="review-section">
+    <h2 class="review-section-title">QA Report</h2>
+    <div class="qa-verdict-bar">
+      <span class="verdict-badge verdict-{{ bundle.verdict | lower }}">{{ bundle.verdict | upper }}</span>
+    </div>
+    {% if bundle.artifacts_html["qa_report"] is not none %}
+      <div class="qa-report-content">
+        {{ bundle.artifacts_html["qa_report"] | safe }}
+      </div>
+    {% else %}
+      <p class="artifact-missing">QA report not produced.</p>
+    {% endif %}
+  </section>
+
+</div>
+{% endblock %}

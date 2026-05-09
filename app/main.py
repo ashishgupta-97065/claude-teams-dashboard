@@ -71,6 +71,10 @@ def create_app(settings: Settings | None = None, github: GitHubClient | None = N
     from app.routes import stream as stream_mod
     from app.routes import team as team_mod
     from app.routes import workspace as workspace_mod
+    from app.routes import review as review_mod
+    from app.services.review import format_duration
+
+    templates.env.filters["duration"] = format_duration  # AC8 single source of truth
 
     pages_mod.register(app, templates, _settings, github)
     tickets_mod.register(app, _settings, github)
@@ -78,6 +82,7 @@ def create_app(settings: Settings | None = None, github: GitHubClient | None = N
     stream_mod.register(app, _settings)
     team_mod.register(app, templates, _settings)
     app.include_router(workspace_mod.router)
+    review_mod.register(app, _settings)  # JSON endpoints (§3.2–§3.4)
 
     return app
 

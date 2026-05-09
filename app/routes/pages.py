@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 
@@ -11,6 +11,7 @@ from app.config import Settings
 from app.services.agents import CANONICAL_AGENTS, ORCHESTRATOR_AGENT
 from app.services import process_registry
 from app.services.github_client import GitHubClient
+import app.services.review as review_service
 
 
 def _worksite_name(settings: Settings) -> str:
@@ -28,6 +29,37 @@ def _load_json_array(path: Path) -> list:
         return []
     except (json.JSONDecodeError, OSError):
         return []
+
+
+def _prepare_event(event: review_service.TraceEvent) -> dict:
+    """Convert a TraceEvent to a display-ready dict for the review template."""
+    data = event.payload.get("data") or {}
+    base = {
+        "kind": event.kind,
+        "ts": event.ts,
+    }
+
+    if event.kind in ("AssistantMessage", "UserMessage"):
+        base["text"] = data.get("text", "")
+
+    elif event.kind == "ToolUseBlock":
+        tool_input = json.dumps(data.get("input", {}))
+        if len(tool_input) > 120:
+            tool_input = tool_input[:120] + "..."
+        base["tool_name"] = data.get("name", "")
+        base["tool_input"] = tool_input
+
+    elif event.kind == "ToolResultBlock":
+        output = str(data.get("output", ""))
+        if len(output) > 120:
+            remaining = len(output) - 120
+            output = output[:120] + f"... {remaining} more chars"
+        base["output"] = output
+
+    elif event.kind == "RateLimitEvent":
+        base["message"] = data.get("message", "")
+
+    return base
 
 
 def register(
@@ -139,6 +171,50 @@ def register(
                 "checkpoint_body": checkpoint_body,
                 "done_count": done_count,
                 "total_agents": len(CANONICAL_AGENTS) + 1,
+            },
+        )
+
+    @app.get("/tickets/{ticket_number}/review", response_class=HTMLResponse)
+    async def review_page(request: Request, ticket_number: int) -> HTMLResponse:
+        """AC1, AC2: Post-run review page for a completed ticket."""
+        ticket_dir = settings.worksite_path / "workspace" / f"ticket_{ticket_number}"
+        if not ticket_dir.is_dir():
+            raise HTTPException(status_code=404)
+
+        trace_files = review_service.list_trace_files(ticket_dir)
+        if not trace_files:
+            raise HTTPException(status_code=404)
+
+        workspace_root = settings.worksite_path / "workspace"
+        repo_root = settings.worksite_path / "repo"
+        bundle = review_service.build_bundle(workspace_root, repo_root, ticket_number)
+
+        # Build per-agent events and token counts for Section 3 (Trace Replay)
+        trace_data: dict = {}
+        for trace_path in trace_files:
+            rollup, events = review_service.parse_trace_file(trace_path)
+            tokens = review_service.estimate_tokens(events)
+            # Pre-process events for template rendering
+            display_events = []
+            for event in events:
+                display_events.append(_prepare_event(event))
+            trace_data[rollup.name] = {
+                "events": display_events,
+                "tokens": tokens,
+            }
+
+        # Compute bar chart widths (largest agent cost = 100%)
+        max_cost = max((a.cost for a in bundle.agents), default=0.0) or 1.0
+
+        return templates.TemplateResponse(
+            request,
+            "review.html",
+            {
+                "bundle": bundle,
+                "ticket_number": ticket_number,
+                "repo": settings.github_repo,
+                "trace_data": trace_data,
+                "max_cost": max_cost,
             },
         )
 
