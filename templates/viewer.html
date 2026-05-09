@@ -1,8 +1,8 @@
 {% extends "_base.html" %}
 
-{% block title %}Ticket #{{ ticket_number }} — Claude Teams{% endblock %}
+{% block title %}Ticket #{{ ticket_id }} — Claude Teams{% endblock %}
 {% block page_name %}viewer{% endblock %}
-{% block body_attrs %}data-ticket="{{ ticket_number }}" data-title="{{ ticket_title }}"{% endblock %}
+{% block body_attrs %}data-ticket="{{ ticket_id }}" data-title="{{ ticket_title | e }}"{% endblock %}
 
 {% block header_left %}
   <a href="/" class="back-link" aria-label="Back to all tickets">
@@ -14,47 +14,56 @@
 {% endblock %}
 
 {% block header_center %}
-  <span class="header-ticket-title">Ticket #{{ ticket_number }} — {{ ticket_title }}</span>
+  <span class="header-ticket-title">Ticket #{{ ticket_id }} — {{ ticket_title | e }}</span>
 {% endblock %}
 
 {% block header_right %}
-  <span class="header-progress" id="progress-indicator">{{ done_count }}/{{ total_agents }} done</span>
+  <div class="topbar-right-group">
+    <span class="totals">
+      $<span id="total-cost">0.00</span>
+      &nbsp;·&nbsp;
+      <span id="total-turns">0</span> turns
+    </span>
+    <span class="phase-pill" id="phase-pill">—</span>
+    <button id="run-btn" class="btn btn-primary" type="button">Run</button>
+  </div>
 {% endblock %}
 
 {% block content %}
-<div class="viewer-page">
+<script>
+  window.__VIEWER_CTX__ = {
+    ticketId: {{ ticket_id | tojson }},
+    worksite: {{ worksite | tojson }},
+    title:    {{ ticket_title | tojson }},
+    sseBase:  {{ sse_base | tojson }}
+  };
+</script>
 
-  <div class="checkpoint-slot" id="checkpoint-slot" {% if not checkpoint_open %}style="display:none"{% endif %} role="region" aria-label="Human input required">
-    <div class="checkpoint-panel">
-      <h2 class="checkpoint-title">Human input required</h2>
-      <pre class="checkpoint-body" id="checkpoint-body">{{ checkpoint_body }}</pre>
-      <form class="checkpoint-form" id="checkpoint-form" onsubmit="return false;">
-        <button type="button" class="btn btn-approved" id="btn-approved">APPROVED</button>
-        <div class="checkpoint-changes">
-          <textarea
-            id="changes-input"
-            class="changes-textarea"
-            placeholder="Describe requested changes…"
-            rows="1"
-            aria-label="Requested changes"
-          ></textarea>
-          <button type="button" class="btn btn-secondary" id="btn-submit-changes" disabled>Submit Changes</button>
-        </div>
-      </form>
-      <p class="checkpoint-submitting" id="checkpoint-submitting" style="display:none">Submitting…</p>
+<div class="viewer">
+  <div class="viewer-body">
+
+    <div class="timeline-col">
+      <div id="timeline" class="timeline" role="log" aria-live="polite" aria-label="Agent timeline">
+        <div class="timeline-empty">No events yet. Click Run to start the pipeline.</div>
+      </div>
     </div>
-  </div>
 
-  <div class="agent-panels" id="agent-panels">
-    {% for panel in agent_panels %}
-      {% include "_agent_panel.html" %}
-    {% endfor %}
-  </div>
+    <div class="sidebar-col">
+      <div class="sidebar-section">
+        <div class="sidebar-heading">Workspace files</div>
+        <div id="tree" class="filebrowser" role="navigation" aria-label="Workspace files">
+          <div class="tree-empty">No files yet.</div>
+        </div>
+      </div>
 
-  <div class="connection-status" id="connection-status" role="status" aria-live="polite">
-    <span class="conn-dot" id="conn-dot"></span>
-    <span id="conn-label">Connecting…</span>
-  </div>
+      <div class="sidebar-section sidebar-preview-section">
+        <div class="sidebar-heading" id="preview-heading">Preview</div>
+        <div id="preview" class="file-preview" aria-labelledby="preview-heading">
+          <div class="preview-empty">Select a file to preview.</div>
+        </div>
+      </div>
+    </div>
 
+  </div>
 </div>
 {% endblock %}

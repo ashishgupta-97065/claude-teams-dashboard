@@ -13,6 +13,7 @@ from fastapi.templating import Jinja2Templates
 
 from app.config import Settings, load_settings
 from app.services import process_registry
+from app.services import workspace_fs as workspace_fs_mod
 from app.services.github_client import GitHubClient
 from app.services.agents import CANONICAL_AGENTS
 
@@ -23,6 +24,9 @@ def create_app(settings: Settings | None = None, github: GitHubClient | None = N
         settings = load_settings()
 
     _settings = settings
+
+    # Wire workspace_fs WORKSPACE_ROOT so routes resolve correctly for this worksite
+    workspace_fs_mod.WORKSPACE_ROOT = _settings.worksite_path / "workspace"
 
     http_client = httpx.AsyncClient()
     if github is None:
@@ -66,12 +70,14 @@ def create_app(settings: Settings | None = None, github: GitHubClient | None = N
     from app.routes import run as run_mod
     from app.routes import stream as stream_mod
     from app.routes import team as team_mod
+    from app.routes import workspace as workspace_mod
 
     pages_mod.register(app, templates, _settings, github)
     tickets_mod.register(app, _settings, github)
     run_mod.register(app, _settings, github)
     stream_mod.register(app, _settings)
     team_mod.register(app, templates, _settings)
+    app.include_router(workspace_mod.router)
 
     return app
 

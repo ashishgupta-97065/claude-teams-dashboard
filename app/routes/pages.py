@@ -13,6 +13,11 @@ from app.services import process_registry
 from app.services.github_client import GitHubClient
 
 
+def _worksite_name(settings: Settings) -> str:
+    """Return the worksite identifier for SSE URLs — parent directory name of worksite_path."""
+    return settings.worksite_path.parent.name
+
+
 def _load_json_array(path: Path) -> list:
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
@@ -116,17 +121,48 @@ def register(
 
         done_count = sum(1 for p in agent_panels if p["status"] == "done")
 
+        worksite = _worksite_name(settings)
+        sse_base = settings.pipeline_runner_url
+
         return templates.TemplateResponse(
             request,
             "viewer.html",
             {
                 "ticket_number": ticket_number,
+                "ticket_id": ticket_number,
                 "ticket_title": issue_title,
+                "worksite": worksite,
+                "sse_base": sse_base,
                 "agent_panels": agent_panels,
                 "repo": settings.github_repo,
                 "checkpoint_open": checkpoint_open,
                 "checkpoint_body": checkpoint_body,
                 "done_count": done_count,
                 "total_agents": len(CANONICAL_AGENTS) + 1,
+            },
+        )
+
+    @app.get("/tickets/{ticket_number}", response_class=HTMLResponse)
+    async def tickets_viewer_page(request: Request, ticket_number: int) -> HTMLResponse:
+        """New viewer page (Ticket #5 redesign). Injects __VIEWER_CTX__ for app.js."""
+        issues, _ = await github.list_issues()
+        issue_title = f"Ticket #{ticket_number}"
+        for issue in issues:
+            if issue.number == ticket_number:
+                issue_title = issue.title
+                break
+
+        worksite = _worksite_name(settings)
+        sse_base = settings.pipeline_runner_url
+
+        return templates.TemplateResponse(
+            request,
+            "viewer.html",
+            {
+                "ticket_id": ticket_number,
+                "ticket_title": issue_title,
+                "worksite": worksite,
+                "sse_base": sse_base,
+                "repo": settings.github_repo,
             },
         )

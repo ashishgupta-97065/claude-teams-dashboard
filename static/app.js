@@ -196,363 +196,540 @@
   }
 
   // ============================================================
-  // VIEWER PAGE
+  // VIEWER PAGE  (Ticket #5 redesign)
   // ============================================================
 
   function initViewerPage() {
-    var body = document.body;
-    var ticketNumber = body.dataset.ticket;
-    if (!ticketNumber) return;
+    var ctx = window.__VIEWER_CTX__;
+    if (!ctx) return;
 
-    var es = null;
-    var badgeCounts = {};
-    var panelEntryCount = {};
+    var ticketId  = ctx.ticketId;
+    var worksite  = ctx.worksite;
+    var sseBase   = ctx.sseBase || '';
 
-    var MAX_ENTRIES = 1000;
-    var SCROLL_THRESHOLD = 40;
+    // ---- State ----
+    var state = {
+      runActive:       false,
+      phase:           null,
+      iteration:       null,
+      totals:          { cost: 0, turns: 0 },
+      groups:          [],
+      expandedFolders: new Set(),
+      selectedFile:    null,
+      treeData:        null,
+      treeMtimes:      new Map(),
+      pollTimer:       null,
+      sseBackoffMs:    1000,
+    };
 
-    function getPanel(agentName) {
-      return document.getElementById('panel-' + agentName);
-    }
+    // ---- TimeFmt ----
+    var TimeFmt = {
+      relative: function (unixSeconds) {
+        if (!unixSeconds) return '';
+        var now = Date.now() / 1000;
+        var diff = Math.floor(now - unixSeconds);
+        if (diff < 5)  return 'just now';
+        if (diff < 60) return diff + 's ago';
+        if (diff < 3600) return Math.floor(diff / 60) + 'm ago';
+        return Math.floor(diff / 3600) + 'h ago';
+      },
+    };
 
-    function getLog(agentName) {
-      return document.getElementById('log-' + agentName);
-    }
-
-    function getBadge(agentName) {
-      return document.getElementById('badge-' + agentName);
-    }
-
-    function getNewBtn(agentName) {
-      return document.getElementById('newbtn-' + agentName);
-    }
-
-    function formatTs(ts) {
-      if (!ts) return '';
-      try {
-        var d = new Date(ts);
-        return '[' + d.toLocaleTimeString() + ']';
-      } catch (e) {
-        return ts.slice(0, 19).replace('T', ' ');
-      }
-    }
-
-    function appendEntry(agentName, text, timestamp) {
-      var log = getLog(agentName);
-      if (!log) return;
-
-      var emptyEl = document.getElementById('empty-' + agentName);
-      if (emptyEl) emptyEl.remove();
-
-      var entry = document.createElement('div');
-      entry.className = 'log-entry';
-      var tsSpan = document.createElement('span');
-      tsSpan.className = 'log-ts';
-      tsSpan.textContent = formatTs(timestamp);
-      var textSpan = document.createElement('span');
-      textSpan.className = 'log-text';
-      textSpan.textContent = text;
-      entry.appendChild(tsSpan);
-      entry.appendChild(textSpan);
-      log.appendChild(entry);
-
-      panelEntryCount[agentName] = (panelEntryCount[agentName] || 0) + 1;
-      trimLog(agentName, log);
-      handleAutoScroll(agentName, log);
-
-      var panel = getPanel(agentName);
-      if (panel && !panel.open) {
-        badgeCounts[agentName] = (badgeCounts[agentName] || 0) + 1;
-        var badge = getBadge(agentName);
-        if (badge) {
-          badge.textContent = '+' + badgeCounts[agentName];
-          badge.style.display = 'inline-block';
-        }
-      }
-    }
-
-    function trimLog(agentName, log) {
-      var entries = log.querySelectorAll('.log-entry');
-      if (entries.length > MAX_ENTRIES) {
-        var toRemove = entries.length - MAX_ENTRIES;
-        for (var i = 0; i < toRemove; i++) {
-          entries[i].remove();
-        }
-        if (!log.querySelector('.log-trimmed-notice')) {
-          var notice = document.createElement('div');
-          notice.className = 'log-trimmed-notice';
-          notice.textContent = '(older entries trimmed)';
-          log.insertBefore(notice, log.firstChild);
-        }
-      }
-    }
-
-    function handleAutoScroll(agentName, log) {
-      var newBtn = getNewBtn(agentName);
-      var distFromBottom = log.scrollHeight - log.scrollTop - log.clientHeight;
-      if (distFromBottom <= SCROLL_THRESHOLD) {
-        log.scrollTop = log.scrollHeight;
-        if (newBtn) newBtn.style.display = 'none';
-      } else {
-        if (newBtn) newBtn.style.display = 'inline-flex';
-      }
-    }
-
-    document.querySelectorAll('.agent-panel').forEach(function (panel) {
-      var agentName = panel.dataset.agent;
-      var badge = getBadge(agentName);
-
-      panel.addEventListener('toggle', function () {
-        if (panel.open) {
-          badgeCounts[agentName] = 0;
-          if (badge) badge.style.display = 'none';
-        }
-      });
-
-      var newBtn = getNewBtn(agentName);
-      if (newBtn) {
-        newBtn.addEventListener('click', function () {
-          var log = getLog(agentName);
-          if (log) log.scrollTop = log.scrollHeight;
-          newBtn.style.display = 'none';
-        });
-      }
-    });
-
-    function setPanelStatus(agentName, status) {
-      var panel = getPanel(agentName);
-      if (!panel) return;
-      panel.dataset.status = status;
-
-      var pill = panel.querySelector('.pill');
-      if (!pill) return;
-
-      pill.className = 'pill ' + (status === 'done' ? 'pill-done' : status === 'running' ? 'pill-inprogress' : 'pill-waiting');
-      pill.setAttribute('aria-label', 'Status: ' + status.toUpperCase());
-
-      var dot = pill.querySelector('.pulse-dot');
-      var check = pill.querySelector('.check-icon');
-
-      if (status === 'running') {
-        if (!dot) {
-          dot = document.createElement('span');
-          dot.className = 'pulse-dot';
-          dot.setAttribute('aria-hidden', 'true');
-          pill.insertBefore(dot, pill.firstChild);
-        }
-        if (check) check.remove();
-      } else {
-        if (dot) dot.remove();
-      }
-
-      if (status === 'done') {
-        if (!check) {
-          check = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-          check.setAttribute('class', 'check-icon');
-          check.setAttribute('width', '12');
-          check.setAttribute('height', '12');
-          check.setAttribute('viewBox', '0 0 12 12');
-          check.setAttribute('fill', 'none');
-          check.setAttribute('aria-hidden', 'true');
-          var path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-          path.setAttribute('d', 'M2 6l3 3 5-5');
-          path.setAttribute('stroke', 'currentColor');
-          path.setAttribute('stroke-width', '1.5');
-          path.setAttribute('stroke-linecap', 'round');
-          path.setAttribute('stroke-linejoin', 'round');
-          check.appendChild(path);
-          pill.insertBefore(check, pill.firstChild);
-        }
-      } else {
-        if (check) check.remove();
-      }
-
-      var textNodes = Array.from(pill.childNodes).filter(function (n) { return n.nodeType === Node.TEXT_NODE; });
-      textNodes.forEach(function (n) { n.textContent = ''; });
-      pill.appendChild(document.createTextNode(status.toUpperCase()));
-
-      if (status === 'running' && !panel.open) {
-        panel.open = true;
-      }
-
-      updateProgressIndicator();
-    }
-
-    function updateProgressIndicator() {
-      var panels = document.querySelectorAll('.agent-panel');
-      var doneCount = 0;
-      panels.forEach(function (p) {
-        if (p.dataset.status === 'done') doneCount++;
-      });
-      var indicator = document.getElementById('progress-indicator');
-      if (indicator) indicator.textContent = doneCount + '/' + panels.length + ' done';
-    }
-
-    function showCheckpoint(body) {
-      var slot = document.getElementById('checkpoint-slot');
-      var bodyEl = document.getElementById('checkpoint-body');
-      if (bodyEl && body) bodyEl.textContent = body;
-      if (slot) slot.style.display = '';
-      var approvedBtn = document.getElementById('btn-approved');
-      if (approvedBtn) approvedBtn.focus();
-    }
-
-    function hideCheckpoint() {
-      var slot = document.getElementById('checkpoint-slot');
-      if (slot) slot.style.display = 'none';
-    }
-
-    var changesInput = document.getElementById('changes-input');
-    var submitChangesBtn = document.getElementById('btn-submit-changes');
-
-    if (changesInput && submitChangesBtn) {
-      changesInput.addEventListener('input', function () {
-        submitChangesBtn.disabled = changesInput.value.trim().length === 0;
-      });
-    }
-
-    function submitHumanResponse(bodyText) {
-      var submitting = document.getElementById('checkpoint-submitting');
-      var approvedBtn = document.getElementById('btn-approved');
-      var changesBtn = document.getElementById('btn-submit-changes');
-      if (submitting) submitting.style.display = '';
-      if (approvedBtn) approvedBtn.disabled = true;
-      if (changesBtn) changesBtn.disabled = true;
-
-      var form = new FormData();
-      form.append('body', bodyText);
-
-      fetch('/run/' + ticketNumber + '/human_response', {
-        method: 'POST',
-        body: new URLSearchParams({ body: bodyText }),
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      })
-        .then(function (r) {
-          if (r.ok || r.status === 409) {
-            setTimeout(hideCheckpoint, 1000);
+    // ---- Renderers ----
+    var Renderers = {
+      escapeHtml: function (s) {
+        return String(s)
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;')
+          .replace(/"/g, '&quot;');
+      },
+      renderPlain: function (text) {
+        return '<pre class="preview-plain">' + Renderers.escapeHtml(text) + '</pre>';
+      },
+      renderMarkdown: function (text) {
+        // Minimal: render as plain text; headings styled
+        var lines = text.split('\n').map(function (line) {
+          var m = line.match(/^(#{1,6})\s+(.*)$/);
+          if (m) {
+            var lvl = m[1].length;
+            return '<h' + lvl + ' class="md-h">' + Renderers.escapeHtml(m[2]) + '</h' + lvl + '>';
           }
-          if (submitting) submitting.style.display = 'none';
-        })
-        .catch(function () {
-          if (submitting) submitting.style.display = 'none';
-          if (approvedBtn) approvedBtn.disabled = false;
-          if (changesBtn) changesBtn.disabled = false;
+          if (line.startsWith('```')) return '';
+          return '<div class="md-line">' + Renderers.escapeHtml(line) + '</div>';
         });
-    }
-
-    var approvedBtn = document.getElementById('btn-approved');
-    if (approvedBtn) {
-      approvedBtn.addEventListener('click', function () {
-        submitHumanResponse('APPROVED');
-      });
-    }
-
-    var submitChangesBtn2 = document.getElementById('btn-submit-changes');
-    if (submitChangesBtn2) {
-      submitChangesBtn2.addEventListener('click', function () {
-        var input = document.getElementById('changes-input');
-        if (input && input.value.trim()) {
-          submitHumanResponse(input.value);
+        return '<div class="preview-md">' + lines.join('') + '</div>';
+      },
+      renderPython: function (text) {
+        // Minimal keyword highlighting
+        var escaped = Renderers.escapeHtml(text);
+        escaped = escaped.replace(/(#[^\n]*)/g, '<span class="tok-comment">$1</span>');
+        escaped = escaped.replace(/\b(def|class|import|from|return|if|elif|else|for|while|in|and|or|not|is|None|True|False|with|as|try|except|finally|raise|yield|pass|break|continue|lambda|global|nonlocal|del|assert)\b/g,
+          '<span class="tok-keyword">$1</span>');
+        escaped = escaped.replace(/(&#34;&#34;&#34;[\s\S]*?&#34;&#34;&#34;|&#34;[^&#34;]*&#34;|&#39;[^&#39;]*&#39;)/g,
+          '<span class="tok-string">$1</span>');
+        return '<pre class="preview-py">' + escaped + '</pre>';
+      },
+      renderJson: function (text) {
+        try {
+          var pretty = JSON.stringify(JSON.parse(text), null, 2);
+          return '<pre class="preview-json">' + Renderers.escapeHtml(pretty) + '</pre>';
+        } catch (e) {
+          return Renderers.renderPlain(text);
         }
-      });
-    }
+      },
+    };
 
-    function setConnectionStatus(state) {
-      var dot = document.getElementById('conn-dot');
-      var label = document.getElementById('conn-label');
-      if (!dot || !label) return;
-      dot.className = 'conn-dot ' + state;
-      if (state === 'connected') label.textContent = 'Connected';
-      else if (state === 'reconnecting') label.textContent = 'Reconnecting…';
-      else label.textContent = 'Disconnected';
-    }
+    // ---- Parsers ----
+    var Parsers = {
+      parseDoneMessage: function (text) {
+        var m = text.match(/\$([0-9]+(?:\.[0-9]+)?)\s*[,;]\s*([0-9]+)\s*turns?/i);
+        if (!m) return null;
+        return { cost: parseFloat(m[1]), turns: parseInt(m[2], 10) };
+      },
+      parseStarting: function (text) {
+        return /starting|pipeline start/i.test(text);
+      },
+    };
 
-    var connStatus = document.getElementById('connection-status');
-    if (connStatus) {
-      connStatus.addEventListener('click', function () {
-        if (es && es.readyState !== EventSource.CLOSED) return;
-        openStream();
-      });
-    }
+    // ---- Phase ----
+    var Phase = {
+      detect: function (text) {
+        if (/define/i.test(text)) return { phase: 'define' };
+        var em = text.match(/execute.*iteration\s+(\d+)/i);
+        if (em) return { phase: 'execute', iteration: parseInt(em[1], 10) };
+        if (/run\s+complete/i.test(text)) return { phase: 'done' };
+        return null;
+      },
+    };
 
-    function handleSystemEvent(inner) {
-      var evt = inner.event;
-      if (evt === 'agent_done') {
-        setPanelStatus(inner.agent, 'done');
-      } else if (evt === 'checkpoint_open') {
-        showCheckpoint(inner.body || '');
-      } else if (evt === 'checkpoint_closed') {
-        hideCheckpoint();
-      } else if (evt === 'run_finished') {
-        setConnectionStatus('disconnected');
-        if (es) es.close();
-      } else {
-        console.warn('Unknown system event:', evt);
-      }
-    }
+    // ---- TopBar ----
+    var TopBar = {
+      phaseEl:    document.getElementById('phase-pill'),
+      costEl:     document.getElementById('total-cost'),
+      turnsEl:    document.getElementById('total-turns'),
+      runBtn:     document.getElementById('run-btn'),
 
-    function openStream() {
-      if (es) { try { es.close(); } catch (e) {} }
-      setConnectionStatus('reconnecting');
+      setPhase: function (phase) {
+        var el = TopBar.phaseEl;
+        if (!el) return;
+        el.className = 'phase-pill' + (phase ? ' phase-' + phase : '');
+        el.textContent = phase ? phase.toUpperCase() : '—';
+      },
+      addCost: function (delta) {
+        state.totals.cost += delta;
+        if (TopBar.costEl) TopBar.costEl.textContent = state.totals.cost.toFixed(2);
+      },
+      addTurns: function (delta) {
+        state.totals.turns += delta;
+        if (TopBar.turnsEl) TopBar.turnsEl.textContent = String(state.totals.turns);
+      },
+      setRunActive: function (active) {
+        state.runActive = active;
+        var btn = TopBar.runBtn;
+        if (!btn) return;
+        btn.textContent = active ? 'Cancel' : 'Run';
+        btn.className   = active ? 'btn btn-danger' : 'btn btn-primary';
+      },
+      bindRunButton: function () {
+        var btn = TopBar.runBtn;
+        if (!btn) return;
+        btn.addEventListener('click', function () {
+          if (state.runActive) {
+            fetch('/api/run/' + ticketId + '/cancel', { method: 'POST' })
+              .then(function () { TopBar.setRunActive(false); })
+              .catch(function () {});
+          } else {
+            btn.disabled = true;
+            fetch('/run/' + ticketId, { method: 'POST' })
+              .then(function (r) {
+                btn.disabled = false;
+                if (r.ok || r.status === 202) {
+                  TopBar.setRunActive(true);
+                  SseClient.connect();
+                }
+              })
+              .catch(function () { btn.disabled = false; });
+          }
+        });
+      },
+    };
 
-      es = new EventSource('/stream/' + ticketNumber);
+    // ---- Timeline ----
+    var timelineEl = document.getElementById('timeline');
 
-      es.onopen = function () {
-        setConnectionStatus('connected');
-      };
+    var Timeline = {
+      append: function (event) {
+        if (!timelineEl) return;
 
-      es.onmessage = function (e) {
-        var data;
-        try { data = JSON.parse(e.data); } catch (ex) { return; }
+        // Remove empty placeholder
+        var empty = timelineEl.querySelector('.timeline-empty');
+        if (empty) empty.remove();
 
+        var agentName = event.agent || 'unknown';
+        var text = event.text || '';
+        var ts   = event.timestamp || '';
+
+        // Find or create group
+        var group = state.groups.length > 0 ? state.groups[state.groups.length - 1] : null;
+        var isOrch = agentName === 'orchestrator';
+
+        // Start new group if agent changes or orchestrator banner
+        if (!group || group.agent !== agentName || (isOrch && group.lastTs !== ts)) {
+          group = Timeline._newGroup(agentName);
+        }
+
+        // Phase detection for orchestrator messages
+        if (isOrch) {
+          var phaseInfo = Phase.detect(text);
+          if (phaseInfo) {
+            if (phaseInfo.phase !== state.phase) {
+              state.phase = phaseInfo.phase;
+              state.iteration = phaseInfo.iteration || null;
+              Timeline.insertPhaseDivider(
+                phaseInfo.phase.toUpperCase() +
+                (phaseInfo.iteration ? ' — Iteration ' + phaseInfo.iteration : '')
+              );
+              TopBar.setPhase(phaseInfo.phase);
+              if (phaseInfo.phase === 'done') {
+                TopBar.setRunActive(false);
+                SseClient.disconnect();
+              }
+            }
+          }
+          // Cost/turns accumulation
+          var done = Parsers.parseDoneMessage(text);
+          if (done) {
+            TopBar.addCost(done.cost);
+            TopBar.addTurns(done.turns);
+          }
+        }
+
+        // Append bubble
+        var bubble = document.createElement('div');
+        bubble.className = 'chat-bubble';
+        var tsFormatted = ts
+          ? TimeFmt.relative(new Date(ts).getTime() / 1000)
+          : '';
+        bubble.innerHTML =
+          '<span class="bubble-ts" data-ts="' + Renderers.escapeHtml(ts) + '">' +
+          Renderers.escapeHtml(tsFormatted) + '</span>' +
+          Renderers.escapeHtml(text);
+
+        group.bubblesEl.appendChild(bubble);
+        group.lastTs = ts;
+
+        // Update status pill
+        if (group.pillEl) group.pillEl.className = 'agent-status-pill pill-running';
+
+        // Auto-scroll
+        var SCROLL_THRESHOLD = 40;
+        var distFromBottom = timelineEl.scrollHeight - timelineEl.scrollTop - timelineEl.clientHeight;
+        if (distFromBottom <= SCROLL_THRESHOLD) {
+          timelineEl.scrollTop = timelineEl.scrollHeight;
+        }
+      },
+
+      _newGroup: function (agentName) {
+        var groupEl   = document.createElement('div');
+        groupEl.className = 'agent-group';
+
+        var headerEl  = document.createElement('div');
+        headerEl.className = 'agent-group-header';
+
+        var pillEl = document.createElement('span');
+        pillEl.className = 'agent-status-pill';
+        pillEl.textContent = 'RUNNING';
+
+        headerEl.appendChild(pillEl);
+        headerEl.appendChild(document.createTextNode(agentName.toUpperCase()));
+
+        var bubblesEl = document.createElement('div');
+        bubblesEl.className = 'agent-bubbles';
+
+        groupEl.appendChild(headerEl);
+        groupEl.appendChild(bubblesEl);
+        if (timelineEl) timelineEl.appendChild(groupEl);
+
+        var group = {
+          agent: agentName,
+          headerEl: headerEl,
+          bubblesEl: bubblesEl,
+          pillEl: pillEl,
+          lastTs: null,
+          status: 'running',
+        };
+        state.groups.push(group);
+        return group;
+      },
+
+      insertPhaseDivider: function (label) {
+        if (!timelineEl) return;
+        var div = document.createElement('div');
+        div.className = 'phase-divider';
+        div.textContent = label;
+        timelineEl.appendChild(div);
+      },
+
+      refreshTimestamps: function () {
+        if (!timelineEl) return;
+        timelineEl.querySelectorAll('.bubble-ts[data-ts]').forEach(function (el) {
+          var ts = el.dataset.ts;
+          if (ts) {
+            el.textContent = TimeFmt.relative(new Date(ts).getTime() / 1000);
+          }
+        });
+      },
+
+      showReconnectToast: function (ms) {
+        var existing = document.getElementById('reconnect-toast');
+        if (existing) existing.remove();
+        if (!timelineEl) return;
+        var toast = document.createElement('div');
+        toast.id = 'reconnect-toast';
+        toast.className = 'reconnect-toast';
+        toast.textContent = 'Reconnecting in ' + Math.round(ms / 1000) + 's…';
+        timelineEl.appendChild(toast);
+      },
+
+      hideReconnectToast: function () {
+        var toast = document.getElementById('reconnect-toast');
+        if (toast) toast.remove();
+      },
+
+      jumpToLatest: function () {
+        if (timelineEl) timelineEl.scrollTop = timelineEl.scrollHeight;
+      },
+    };
+
+    // ---- SseClient ----
+    var SseClient = {
+      _reader: null,
+      _abortCtrl: null,
+
+      connect: function () {
+        SseClient.disconnect();
+        Timeline.hideReconnectToast();
+
+        var url = sseBase + '/stream/' + worksite + '/' + ticketId;
+        var abortCtrl = new AbortController();
+        SseClient._abortCtrl = abortCtrl;
+
+        fetch(url, { signal: abortCtrl.signal })
+          .then(function (resp) {
+            if (!resp.ok) { SseClient._scheduleReconnect(); return; }
+            state.sseBackoffMs = 1000; // reset on successful connect
+            state.runActive = true;
+            TopBar.setRunActive(true);
+
+            var reader = resp.body.getReader();
+            SseClient._reader = reader;
+            var decoder = new TextDecoder();
+            var buffer = '';
+
+            function pump() {
+              reader.read().then(function (result) {
+                if (result.done) { SseClient._scheduleReconnect(); return; }
+                buffer += decoder.decode(result.value, { stream: true });
+                var lines = buffer.split('\n');
+                buffer = lines.pop();
+                for (var i = 0; i < lines.length; i++) {
+                  var line = lines[i].trim();
+                  if (!line.startsWith('data:')) continue;
+                  var raw = line.slice(5).trim();
+                  if (!raw) continue;
+                  try {
+                    var evt = JSON.parse(raw);
+                    SseClient._handleEvent(evt);
+                  } catch (e) {}
+                }
+                pump();
+              }).catch(function () { SseClient._scheduleReconnect(); });
+            }
+            pump();
+          })
+          .catch(function () { SseClient._scheduleReconnect(); });
+      },
+
+      disconnect: function () {
+        if (SseClient._abortCtrl) {
+          SseClient._abortCtrl.abort();
+          SseClient._abortCtrl = null;
+        }
+        SseClient._reader = null;
+      },
+
+      _handleEvent: function (data) {
+        if (!data) return;
         if (data.agent === '_system') {
-          var inner;
-          try { inner = JSON.parse(data.text); } catch (ex) { return; }
-          handleSystemEvent(inner);
+          try {
+            var inner = typeof data.text === 'string' ? JSON.parse(data.text) : data.text;
+            if (inner.event === 'run_finished') {
+              TopBar.setRunActive(false);
+              SseClient.disconnect();
+            }
+          } catch (e) {}
+          return;
+        }
+        Timeline.append(data);
+      },
+
+      _scheduleReconnect: function () {
+        if (state.phase === 'done') return;
+        var delay = state.sseBackoffMs;
+        Timeline.showReconnectToast(delay);
+        state.sseBackoffMs = Math.min(state.sseBackoffMs * 2, 30000);
+        setTimeout(function () {
+          Timeline.hideReconnectToast();
+          SseClient.connect();
+        }, delay);
+      },
+    };
+
+    // ---- Preview ----
+    var Preview = {
+      showFile: function (path) {
+        state.selectedFile = path;
+        var previewEl = document.getElementById('preview');
+        if (!previewEl) return;
+
+        var ext = path.split('.').pop().toLowerCase();
+        var url = '/api/workspace/' + ticketId + '/file?path=' + encodeURIComponent(path);
+
+        fetch(url)
+          .then(function (resp) {
+            var truncated = resp.headers.get('x-truncated') === 'true';
+            var origSize  = resp.headers.get('x-original-size');
+            return resp.text().then(function (text) {
+              return { text: text, truncated: truncated, origSize: origSize };
+            });
+          })
+          .then(function (result) {
+            var banner = '';
+            if (result.truncated && result.origSize) {
+              var mb = (parseInt(result.origSize, 10) / 1048576).toFixed(1);
+              banner = '<div class="preview-truncated-banner">Showing first 1 MB of ' + mb + ' MB</div>';
+            }
+            var rendered = '';
+            if (ext === 'md') {
+              rendered = Renderers.renderMarkdown(result.text);
+            } else if (ext === 'py') {
+              rendered = Renderers.renderPython(result.text);
+            } else if (ext === 'json') {
+              rendered = Renderers.renderJson(result.text);
+            } else {
+              rendered = Renderers.renderPlain(result.text);
+            }
+            previewEl.innerHTML = banner + rendered;
+          })
+          .catch(function () {
+            previewEl.innerHTML = '<div class="preview-empty">Failed to load file.</div>';
+          });
+      },
+    };
+
+    // ---- Tree ----
+    var Tree = {
+      startPolling: function () {
+        Tree._fetchAndRender();
+        if (state.runActive) {
+          state.pollTimer = setInterval(Tree._fetchAndRender, 3000);
+        }
+      },
+
+      stopPolling: function () {
+        if (state.pollTimer !== null) {
+          clearInterval(state.pollTimer);
+          state.pollTimer = null;
+        }
+      },
+
+      _fetchAndRender: function () {
+        fetch('/api/workspace/' + ticketId + '/files')
+          .then(function (r) {
+            if (!r.ok) return null;
+            return r.json();
+          })
+          .then(function (data) {
+            if (!data) return;
+            state.treeData = data.entries || [];
+            Tree.render(state.treeData);
+          })
+          .catch(function () {});
+      },
+
+      render: function (entries) {
+        var treeEl = document.getElementById('tree');
+        if (!treeEl) return;
+        treeEl.innerHTML = '';
+
+        if (!entries || entries.length === 0) {
+          treeEl.innerHTML = '<div class="tree-empty">No files yet.</div>';
           return;
         }
 
-        var agentName = data.agent;
-        var currentStatus = (function () {
-          var panel = getPanel(agentName);
-          return panel ? panel.dataset.status : 'waiting';
-        })();
+        entries.forEach(function (entry) {
+          var row = document.createElement('div');
+          var depth = (entry.path.match(/\//g) || []).length;
+          row.className = 'tree-row';
+          row.style.paddingLeft = (8 + depth * 14) + 'px';
+          row.dataset.path = entry.path;
 
-        if (currentStatus === 'waiting') {
-          setPanelStatus(agentName, 'running');
-        }
-
-        appendEntry(agentName, data.text, data.timestamp);
-      };
-
-      es.onerror = function () {
-        setConnectionStatus('reconnecting');
-        refetchState();
-      };
-    }
-
-    function refetchState() {
-      fetch('/api/tickets/' + ticketNumber + '/state')
-        .then(function (r) { return r.json(); })
-        .then(function (data) {
-          var agents = data.agents || {};
-          Object.keys(agents).forEach(function (name) {
-            var agentData = agents[name];
-            var panel = getPanel(name);
-            if (panel && panel.dataset.status !== agentData.status) {
-              setPanelStatus(name, agentData.status);
-            }
-          });
-          if (data.checkpoint && data.checkpoint.open) {
-            showCheckpoint(data.checkpoint.body || '');
-          } else {
-            hideCheckpoint();
+          var prevMtime = state.treeMtimes.get(entry.path);
+          if (prevMtime !== undefined && prevMtime !== entry.modified) {
+            row.classList.add('row-flash');
+            requestAnimationFrame(function () { row.classList.remove('row-flash'); });
           }
-        })
-        .catch(function () {});
+          state.treeMtimes.set(entry.path, entry.modified);
+
+          if (entry.is_dir) {
+            var expanded = state.expandedFolders.has(entry.path);
+            row.innerHTML = '<span class="tree-icon">' + (expanded ? '▾' : '▸') + '</span>' +
+              Renderers.escapeHtml(entry.path.split('/').pop());
+            row.addEventListener('click', function () { Tree.toggleFolder(entry.path); });
+          } else {
+            row.innerHTML = '<span class="tree-icon">·</span>' +
+              Renderers.escapeHtml(entry.path.split('/').pop());
+            if (entry.path === state.selectedFile) row.classList.add('selected');
+            row.addEventListener('click', function () { Tree.selectFile(entry.path); });
+          }
+
+          treeEl.appendChild(row);
+        });
+      },
+
+      toggleFolder: function (path) {
+        if (state.expandedFolders.has(path)) {
+          state.expandedFolders.delete(path);
+        } else {
+          state.expandedFolders.add(path);
+        }
+        if (state.treeData) Tree.render(state.treeData);
+      },
+
+      selectFile: function (path) {
+        state.selectedFile = path;
+        Preview.showFile(path);
+        // Re-render to update selection highlight
+        if (state.treeData) Tree.render(state.treeData);
+      },
+    };
+
+    // ---- Visibility handler ----
+    function visibilityHandler() {
+      if (document.visibilityState === 'visible') {
+        if (!state.runActive) {
+          Tree._fetchAndRender();
+        }
+      }
     }
 
-    openStream();
+    // ---- Bootstrap ----
+    TopBar.bindRunButton();
+    SseClient.connect();
+    Tree.startPolling();
+    setInterval(Timeline.refreshTimestamps, 10000);
+    document.addEventListener('visibilitychange', visibilityHandler);
   }
 
   // ============================================================
