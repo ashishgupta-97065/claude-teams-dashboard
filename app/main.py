@@ -65,11 +65,13 @@ def create_app(settings: Settings | None = None, github: GitHubClient | None = N
     from app.routes import tickets as tickets_mod
     from app.routes import run as run_mod
     from app.routes import stream as stream_mod
+    from app.routes import team as team_mod
 
     pages_mod.register(app, templates, _settings, github)
     tickets_mod.register(app, _settings, github)
     run_mod.register(app, _settings, github)
     stream_mod.register(app, _settings)
+    team_mod.register(app, templates, _settings)
 
     return app
 

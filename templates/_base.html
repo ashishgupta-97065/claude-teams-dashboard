@@ -12,6 +12,10 @@
       <span class="header-title">Claude Teams</span>
     {% endblock %}
     {% block header_center %}{% endblock %}
+    <nav class="nav-bar">
+      <a href="/" class="{% if request.url.path == '/' %}active{% endif %}">Tickets</a>
+      <a href="/team" class="{% if request.url.path == '/team' %}active{% endif %}">Team</a>
+    </nav>
     {% block header_right %}
       <span class="header-repo">{{ repo }}</span>
     {% endblock %}

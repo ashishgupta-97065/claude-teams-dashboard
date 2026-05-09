@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass, field
-from pathlib import Path
+from pathlib import Path  # noqa: F401 (used in field defaults)
 
 
 @dataclass(frozen=True)
@@ -13,6 +13,8 @@ class Settings:
     pipeline_runner_url: str = "http://localhost:8090"
     port: int = 8080
     bind_host: str = "127.0.0.1"
+    claude_teams_root: Path = field(default_factory=lambda: Path("."))
+    agents_dir: Path = field(default_factory=lambda: Path("."))
 
 
 def load_settings() -> Settings:
@@ -43,6 +45,10 @@ def load_settings() -> Settings:
 
     pipeline_runner_url = os.environ.get("PIPELINE_RUNNER_URL", "http://localhost:8090")
 
+    ctr_raw = os.environ.get("CLAUDE_TEAMS_ROOT")
+    claude_teams_root = Path(ctr_raw) if ctr_raw else worksite_path.parents[1]
+    agents_dir = claude_teams_root / "898_team_setup_infra" / "agents"
+
     return Settings(
         worksite_path=worksite_path,
         github_repo=github_repo,
@@ -50,4 +56,6 @@ def load_settings() -> Settings:
         pipeline_runner_url=pipeline_runner_url,
         port=port,
         bind_host=bind_host,
+        claude_teams_root=claude_teams_root,
+        agents_dir=agents_dir,
     )

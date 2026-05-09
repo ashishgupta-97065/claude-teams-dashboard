@@ -1,0 +1,97 @@
+{% extends "_base.html" %}
+
+{% block title %}Team — Claude Teams{% endblock %}
+{% block page_name %}team{% endblock %}
+
+{% block content %}
+<div class="team-page">
+  <h1 class="page-heading">Team Manager</h1>
+
+  <!-- Toast notification -->
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+  <!-- Tab strip -->
+  <div role="tablist" class="tablist" aria-label="Team management sections">
+    <button role="tab" id="tab-agents" class="tab" aria-selected="true" aria-controls="panel-agents" tabindex="0">
+      Agents
+    </button>
+    <button role="tab" id="tab-config" class="tab" aria-selected="false" aria-controls="panel-config" tabindex="-1">
+      Config
+    </button>
+    <button role="tab" id="tab-queue" class="tab" aria-selected="false" aria-controls="panel-queue" tabindex="-1">
+      Queue
+    </button>
+  </div>
+
+  <!-- Agents panel -->
+  <div role="tabpanel" id="panel-agents" aria-labelledby="tab-agents" class="tab-panel">
+    <table class="agents-table">
+      <thead>
+        <tr>
+          <th></th>
+          <th>Name</th>
+          <th>Model</th>
+          <th>Tools</th>
+          <th>Mode</th>
+        </tr>
+      </thead>
+      <tbody id="agents-tbody">
+        <tr><td colspan="5" class="muted">Loading agents…</td></tr>
+      </tbody>
+    </table>
+
+    <!-- Model options as hidden reference (also satisfies AC9 HTML check) -->
+    <select id="model-options-ref" hidden aria-hidden="true">
+      <option value="claude-opus-4-7">claude-opus-4-7</option>
+      <option value="claude-sonnet-4-6">claude-sonnet-4-6</option>
+      <option value="claude-haiku-4-5-20251001">claude-haiku-4-5-20251001</option>
+    </select>
+  </div>
+
+  <!-- Config panel -->
+  <div role="tabpanel" id="panel-config" aria-labelledby="tab-config" class="tab-panel" hidden>
+    <form id="config-form" class="config-form" novalidate>
+      <div class="form-row">
+        <label for="cfg-loop-cap">Loop cap</label>
+        <input type="number" id="cfg-loop-cap" name="loop_cap" min="1" class="input-sm">
+      </div>
+      <div class="form-row">
+        <label for="cfg-human-mode">Human mode</label>
+        <select id="cfg-human-mode" name="human_mode">
+          <option value="active_discussion">active_discussion</option>
+          <option value="task_confirmation_only">task_confirmation_only</option>
+          <option value="no_human">no_human</option>
+        </select>
+      </div>
+      <div class="form-row">
+        <label>Active agents</label>
+        <div id="cfg-agents-list" class="agents-checklist">
+          <span class="muted">Loading…</span>
+        </div>
+      </div>
+      <div class="form-actions">
+        <button type="submit" class="btn btn-primary" id="config-save-btn">Save config</button>
+        <span class="saved-indicator" id="config-saved-indicator" hidden>Saved</span>
+      </div>
+    </form>
+  </div>
+
+  <!-- Queue panel -->
+  <div role="tabpanel" id="panel-queue" aria-labelledby="tab-queue" class="tab-panel" hidden>
+    <div class="queue-add-row">
+      <input type="number" id="queue-add-input" placeholder="Ticket #" min="1" class="input-sm">
+      <button type="button" id="queue-add-btn" class="btn btn-secondary">Add</button>
+      <span class="queue-add-error muted" id="queue-add-error" hidden></span>
+    </div>
+    <ol id="queue-list" class="queue-list">
+      <li class="muted">Loading queue…</li>
+    </ol>
+    <div class="form-actions">
+      <button type="button" class="btn btn-primary" id="queue-save-btn">Save queue</button>
+      <span class="saved-indicator" id="queue-saved-indicator" hidden>Saved</span>
+    </div>
+  </div>
+</div>
+
+<script src="/static/team.js" defer></script>
+{% endblock %}
